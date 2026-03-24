@@ -39,6 +39,8 @@ jobs:
 
       - name: Build ToonStream APK
         working-directory: aniyomi-extensions
+        env:
+          CI: "false"
         run: ./gradlew :src:hi:toonstream:assembleRelease --no-daemon
 
       - name: Find APK
