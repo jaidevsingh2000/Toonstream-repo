@@ -6,3 +6,12 @@ ext {
 }
 
 apply from: "$rootDir/common.gradle"
+
+configurations.all {
+    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'com.github.inorichi.injekt') {
+            details.useTarget('uy.kohesive.injekt:injekt-core:1.16.1')
+            details.because('Use Maven Central version instead of broken JitPack artifact')
+        }
+    }
+}
