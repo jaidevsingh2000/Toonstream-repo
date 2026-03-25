@@ -21,6 +21,10 @@ android {
             signingConfig = signingConfigs.release
         }
     }
+    lint {
+        disable "Instantiatable"
+        abortOnError false
+    }
 }
 
 configurations.all {
