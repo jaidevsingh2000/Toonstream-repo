@@ -7,6 +7,22 @@ ext {
 
 apply from: "$rootDir/common.gradle"
 
+android {
+    signingConfigs {
+        release {
+            storeFile = file("${rootDir}/signingkey.jks")
+            storePassword = "toonstream123"
+            keyAlias = "toonstream"
+            keyPassword = "toonstream123"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.release
+        }
+    }
+}
+
 configurations.all {
     resolutionStrategy.eachDependency { DependencyResolveDetails details ->
         if (details.requested.group == 'com.github.inorichi.injekt') {
