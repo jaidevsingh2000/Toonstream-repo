@@ -38,7 +38,7 @@ class ToonStream : ParsedAnimeHttpSource() {
         )
 
     override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/home/page/$page/", headers)
+        GET("$baseUrl/page/$page/", headers)
 
     override fun popularAnimeSelector() =
         "div.post-cards article, div.items article, article.TPost"
@@ -58,7 +58,7 @@ class ToonStream : ParsedAnimeHttpSource() {
         "div.nav-links a.next, .pagination a.next, a.nextpostslink"
 
     override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/recently-added/page/$page/", headers)
+        GET("$baseUrl/anime/page/$page/", headers)
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
