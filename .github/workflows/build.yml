@@ -15,6 +15,16 @@ jobs:
       - name: Clone aniyomi-extensions
         run: git clone --depth=1 https://github.com/aniyomiorg/aniyomi-extensions.git
 
+      - name: Patch injekt dependency
+        run: |
+          echo "=== Searching for injekt references ==="
+          grep -r "injekt" aniyomi-extensions/ --include="*.gradle" --include="*.kts" --include="*.toml" -l || true
+          echo "=== Patching injekt to use Maven Central version ==="
+          find aniyomi-extensions -type f \( -name "*.gradle" -o -name "*.toml" -o -name "*.kts" \) \
+            -exec sed -i 's|com\.github\.inorichi\.injekt:injekt-core:[a-zA-Z0-9]*|uy.kohesive.injekt:injekt-core:1.16.1|g' {} \;
+          echo "=== After patch ==="
+          grep -r "injekt" aniyomi-extensions/ --include="*.gradle" --include="*.kts" --include="*.toml" || true
+
       - name: Copy ToonStream extension into repo
         run: |
           mkdir -p aniyomi-extensions/src/hi/toonstream/src/eu/kanade/tachiyomi/animeextension/hi/toonstream
