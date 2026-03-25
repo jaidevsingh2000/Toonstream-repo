@@ -38,17 +38,18 @@ class ToonStream : ParsedAnimeHttpSource() {
         )
 
     override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/page/$page/", headers)
+        GET(if (page == 1) "$baseUrl/home/" else "$baseUrl/home/page/$page/", headers)
 
     override fun popularAnimeSelector() =
-        "div.post-cards article, div.items article, article.TPost"
+        "article.TPost, div.items article, div.post-cards article"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         return SAnime.create().apply {
-            setUrlWithoutDomain(element.selectFirst("a")!!.attr("href"))
-            title = element.selectFirst("h2, h3, .Title, .name")?.text()
-                ?: element.selectFirst("a")?.attr("title") ?: ""
-            thumbnail_url = element.selectFirst("img")?.let {
+            val link = element.selectFirst("a.lnk, a")!!
+            setUrlWithoutDomain(link.attr("href"))
+            title = element.selectFirst(".Title, h2, h3")?.text()
+                ?: link.attr("title").ifEmpty { element.text() }
+            thumbnail_url = element.selectFirst(".Image img, img")?.let {
                 it.attr("data-src").ifEmpty { it.attr("src") }
             }
         }
@@ -58,7 +59,10 @@ class ToonStream : ParsedAnimeHttpSource() {
         "div.nav-links a.next, .pagination a.next, a.nextpostslink"
 
     override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/anime/page/$page/", headers)
+        GET(
+            if (page == 1) "$baseUrl/category/anime/" else "$baseUrl/category/anime/page/$page/",
+            headers,
+        )
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
@@ -66,42 +70,36 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = if (query.isNotEmpty()) {
-            "$baseUrl/?s=${query.replace(" ", "+")}&page=$page"
+            "$baseUrl/?s=${query.replace(" ", "+")}"
         } else {
             val urlBuilder = baseUrl.toHttpUrl().newBuilder()
             filters.forEach { filter ->
                 when (filter) {
-                    is LanguageFilter -> {
-                        if (filter.state != 0) {
-                            urlBuilder.addPathSegment("language")
-                                .addPathSegment(filter.slugs[filter.state].second)
-                                .addPathSegment("")
-                        }
-                    }
                     is GenreFilter -> {
                         if (filter.state != 0) {
-                            urlBuilder.addPathSegment("genre")
+                            urlBuilder.addPathSegment("category")
                                 .addPathSegment(filter.slugs[filter.state].second)
                                 .addPathSegment("")
                         }
                     }
                     is TypeFilter -> {
                         if (filter.state != 0) {
-                            urlBuilder.addPathSegment("type")
-                                .addPathSegment(filter.slugs[filter.state].second)
+                            urlBuilder.addPathSegment(filter.slugs[filter.state].second)
                                 .addPathSegment("")
                         }
                     }
                     else -> {}
                 }
             }
-            urlBuilder.addQueryParameter("page", page.toString())
+            if (page > 1) urlBuilder.addPathSegment("page").addPathSegment(page.toString())
             urlBuilder.build().toString()
         }
         return GET(url, headers)
     }
 
-    override fun searchAnimeSelector() = "div.result-item article, ${popularAnimeSelector()}"
+    override fun searchAnimeSelector() =
+        "div.result-item article, article.TPost, div.items article"
+
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
@@ -112,7 +110,7 @@ class ToonStream : ParsedAnimeHttpSource() {
                 it.attr("data-src").ifEmpty { it.attr("src") }
             }
             description = document.selectFirst(
-                ".Description p, .sbox.fixidtab p, article.Description",
+                ".Description p, .sbox.fixidtab p, article.Description p",
             )?.text()
             genre = document.select(".Genre a, .sgeneros a").joinToString { it.text() }
             status = when (document.selectFirst(".Status")?.text()?.lowercase()) {
@@ -124,7 +122,7 @@ class ToonStream : ParsedAnimeHttpSource() {
     }
 
     override fun episodeListSelector() =
-        "ul.episodios li, div.episodios li, .episodelist li, ul.season-list li"
+        "ul.episodios li, div.episodios li, #seasons .se-c .episodios li"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -158,8 +156,7 @@ class ToonStream : ParsedAnimeHttpSource() {
         val document = response.asJsoup()
         val videoList = mutableListOf<Video>()
         val serverItems = document.select(
-            ".dooplay_player_option, .server-item, .option-btn, " +
-                ".PlayerTb li, #playeroptionsul li, .tablinks",
+            "#playeroptionsul li, .dooplay_player_option, .server-item",
         )
         if (serverItems.isEmpty()) {
             document.select("iframe").forEach { iframe ->
@@ -224,22 +221,9 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override fun getFilterList() = AnimeFilterList(
         AnimeFilter.Header("Leave search empty to use filters"),
-        LanguageFilter(),
         GenreFilter(),
         TypeFilter(),
     )
-
-    class LanguageFilter : AnimeFilter.Select<String>(
-        "Language",
-        arrayOf("All", "Hindi Dubbed", "English Dubbed", "Japanese (Sub)"),
-    ) {
-        val slugs = arrayOf(
-            Pair("All", ""),
-            Pair("Hindi Dubbed", "hindi-dubbed"),
-            Pair("English Dubbed", "english-dubbed"),
-            Pair("Japanese (Sub)", "japanese"),
-        )
-    }
 
     class GenreFilter : AnimeFilter.Select<String>(
         "Genre",
@@ -277,15 +261,13 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     class TypeFilter : AnimeFilter.Select<String>(
         "Type",
-        arrayOf("All", "TV Series", "Movies", "OVA", "ONA", "Special"),
+        arrayOf("All", "Anime", "Series", "Movies"),
     ) {
         val slugs = arrayOf(
             Pair("All", ""),
-            Pair("TV Series", "tv"),
+            Pair("Anime", "anime"),
+            Pair("Series", "series"),
             Pair("Movies", "movies"),
-            Pair("OVA", "ova"),
-            Pair("ONA", "ona"),
-            Pair("Special", "special"),
         )
     }
                                              }
