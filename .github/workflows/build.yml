@@ -15,13 +15,21 @@ jobs:
       - name: Clone aniyomi-extensions
         run: git clone --depth=1 https://github.com/aniyomiorg/aniyomi-extensions.git
 
-      - name: Patch injekt dependency
+      - name: Show injekt references in cloned repo
         run: |
-          echo "=== Searching for injekt references ==="
+          echo "=== Files containing injekt ==="
           grep -r "injekt" aniyomi-extensions/ --include="*.gradle" --include="*.kts" --include="*.toml" -l || true
-          echo "=== Patching injekt to use Maven Central version ==="
-          find aniyomi-extensions -type f \( -name "*.gradle" -o -name "*.toml" -o -name "*.kts" \) \
-            -exec sed -i 's|com\.github\.inorichi\.injekt:injekt-core:[a-zA-Z0-9]*|uy.kohesive.injekt:injekt-core:1.16.1|g' {} \;
+          echo "=== injekt content in those files ==="
+          grep -r "injekt" aniyomi-extensions/ --include="*.gradle" --include="*.kts" --include="*.toml" || true
+
+      - name: Patch injekt in all file types
+        run: |
+          find aniyomi-extensions -type f \( -name "*.gradle" -o -name "*.kts" \) \
+            -exec sed -i 's|com\.github\.inorichi\.injekt:injekt-core:[a-zA-Z0-9_.-]*|uy.kohesive.injekt:injekt-core:1.16.1|g' {} \;
+          find aniyomi-extensions -type f -name "*.toml" \
+            -exec sed -i '/^injekt/s|"[a-zA-Z0-9_.-]*"|"1.16.1"|g' {} \;
+          find aniyomi-extensions -type f -name "*.toml" \
+            -exec sed -i 's|com\.github\.inorichi\.injekt:injekt-core|uy.kohesive.injekt:injekt-core|g' {} \;
           echo "=== After patch ==="
           grep -r "injekt" aniyomi-extensions/ --include="*.gradle" --include="*.kts" --include="*.toml" || true
 
