@@ -74,21 +74,21 @@ class ToonStream : ParsedAnimeHttpSource() {
                     is LanguageFilter -> {
                         if (filter.state != 0) {
                             urlBuilder.addPathSegment("language")
-                                .addPathSegment(filter.values[filter.state].second)
+                                .addPathSegment(filter.slugs[filter.state].second)
                                 .addPathSegment("")
                         }
                     }
                     is GenreFilter -> {
                         if (filter.state != 0) {
                             urlBuilder.addPathSegment("genre")
-                                .addPathSegment(filter.values[filter.state].second)
+                                .addPathSegment(filter.slugs[filter.state].second)
                                 .addPathSegment("")
                         }
                     }
                     is TypeFilter -> {
                         if (filter.state != 0) {
                             urlBuilder.addPathSegment("type")
-                                .addPathSegment(filter.values[filter.state].second)
+                                .addPathSegment(filter.slugs[filter.state].second)
                                 .addPathSegment("")
                         }
                     }
@@ -233,7 +233,7 @@ class ToonStream : ParsedAnimeHttpSource() {
         "Language",
         arrayOf("All", "Hindi Dubbed", "English Dubbed", "Japanese (Sub)"),
     ) {
-        val values = arrayOf(
+        val slugs = arrayOf(
             Pair("All", ""),
             Pair("Hindi Dubbed", "hindi-dubbed"),
             Pair("English Dubbed", "english-dubbed"),
@@ -250,7 +250,7 @@ class ToonStream : ParsedAnimeHttpSource() {
             "Sports", "Super Power", "Supernatural", "Thriller",
         ),
     ) {
-        val values = arrayOf(
+        val slugs = arrayOf(
             Pair("All", ""),
             Pair("Action", "action"),
             Pair("Adventure", "adventure"),
@@ -279,7 +279,7 @@ class ToonStream : ParsedAnimeHttpSource() {
         "Type",
         arrayOf("All", "TV Series", "Movies", "OVA", "ONA", "Special"),
     ) {
-        val values = arrayOf(
+        val slugs = arrayOf(
             Pair("All", ""),
             Pair("TV Series", "tv"),
             Pair("Movies", "movies"),
