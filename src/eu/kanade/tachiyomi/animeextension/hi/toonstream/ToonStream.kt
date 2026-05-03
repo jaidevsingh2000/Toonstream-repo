@@ -122,11 +122,13 @@ class ToonStream : ParsedAnimeHttpSource() {
             ".entry-content > p, .description p, .sinopsis p, .sbox p",
         )?.text()
         genre = document.select("a[href*='/category/']")
+            .toList()
             .filter { it.attr("href").contains("/gener/") || it.attr("href").contains("/action/") || it.attr("href").contains("/genre") }
             .joinToString { it.text() }
             .ifEmpty {
                 document.select("a[href*='/category/']")
-                    .drop(2) // skip breadcrumb-style first entries
+                    .toList()
+                    .drop(2)
                     .take(5)
                     .joinToString { it.text() }
             }
