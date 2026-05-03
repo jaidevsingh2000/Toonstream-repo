@@ -27,7 +27,7 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override val client: OkHttpClient = network.cloudflareClient
 
-    private val dateFormat = SimpleDateFormat("MMMM d, yyyy", Locale.ENGLISH)
+    private val dateFormat = SimpleDateFormat("yyyy", Locale.ENGLISH)
 
     override fun headersBuilder() = Headers.Builder()
         .add("Referer", "$baseUrl/")
@@ -37,36 +37,56 @@ class ToonStream : ParsedAnimeHttpSource() {
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
 
+    // Fix image URL — site uses protocol-relative URLs like //image.tmdb.org/...
+    private fun fixImageUrl(url: String): String {
+        return when {
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("http") -> url
+            else -> "$baseUrl$url"
+        }
+    }
+
     // ======================== Popular ========================
 
-    override fun popularAnimeRequest(page: Int): Request =
-        GET(if (page == 1) "$baseUrl/home/" else "$baseUrl/home/page/$page/", headers)
+    override fun popularAnimeRequest(page: Int): Request {
+        val url = if (page == 1) {
+            "$baseUrl/category/anime/anime-series/"
+        } else {
+            "$baseUrl/category/anime/anime-series/page/$page/"
+        }
+        return GET(url, headers)
+    }
 
-    override fun popularAnimeSelector() =
-        "article.TPost, div.items article, div.post-cards article"
+    // Articles have class like "post dfx fcl series" or "post dfx fcl movies"
+    override fun popularAnimeSelector() = "article.post"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         return SAnime.create().apply {
-            val link = element.selectFirst("a.lnk, a")!!
+            val link = element.selectFirst("a.lnk-blk")!!
             setUrlWithoutDomain(link.attr("href"))
-            title = element.selectFirst(".Title, h2, h3")?.text()
-                ?: link.attr("title").ifEmpty { element.text() }
-            thumbnail_url = element.selectFirst(".Image img, img")?.let {
-                it.attr("data-src").ifEmpty { it.attr("src") }
+            title = element.selectFirst("h2.entry-title")?.text()
+                ?: link.attr("title").ifEmpty { "Unknown" }
+            thumbnail_url = element.selectFirst("img")?.let {
+                val src = it.attr("src").ifEmpty { it.attr("data-src") }
+                fixImageUrl(src)
             }
         }
     }
 
+    // WordPress pagination — next page link has rel="next"
     override fun popularAnimeNextPageSelector() =
-        "div.nav-links a.next, .pagination a.next, a.nextpostslink"
+        "a[rel=\"next\"], .pagination .next, .nav-links a.next, a.next-posts-link"
 
     // ======================== Latest ========================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET(
-            if (page == 1) "$baseUrl/category/anime/" else "$baseUrl/category/anime/page/$page/",
-            headers,
-        )
+    override fun latestUpdatesRequest(page: Int): Request {
+        val url = if (page == 1) {
+            "$baseUrl/category/anime/anime-series/"
+        } else {
+            "$baseUrl/category/anime/anime-series/page/$page/"
+        }
+        return GET(url, headers)
+    }
 
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
@@ -75,37 +95,37 @@ class ToonStream : ParsedAnimeHttpSource() {
     // ======================== Search ========================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = if (query.isNotEmpty()) {
-            "$baseUrl/?s=${query.replace(" ", "+")}"
+        return if (query.isNotEmpty()) {
+            val searchUrl = if (page == 1) {
+                "$baseUrl/?s=${query.replace(" ", "+")}"
+            } else {
+                "$baseUrl/page/$page/?s=${query.replace(" ", "+")}"
+            }
+            GET(searchUrl, headers)
         } else {
-            val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+            // Filter-based browsing
+            var categoryUrl = "$baseUrl/"
             filters.forEach { filter ->
                 when (filter) {
                     is GenreFilter -> {
                         if (filter.state != 0) {
-                            urlBuilder.addPathSegment("category")
-                                .addPathSegment(filter.slugs[filter.state].second)
-                                .addPathSegment("")
+                            categoryUrl = "$baseUrl/category/${filter.slugs[filter.state].second}/"
                         }
                     }
                     is TypeFilter -> {
                         if (filter.state != 0) {
-                            urlBuilder.addPathSegment(filter.slugs[filter.state].second)
-                                .addPathSegment("")
+                            categoryUrl = "$baseUrl/category/anime/${filter.slugs[filter.state].second}/"
                         }
                     }
                     else -> {}
                 }
             }
-            if (page > 1) urlBuilder.addPathSegment("page").addPathSegment(page.toString())
-            urlBuilder.build().toString()
+            if (page > 1) categoryUrl += "page/$page/"
+            GET(categoryUrl, headers)
         }
-        return GET(url, headers)
     }
 
-    override fun searchAnimeSelector() =
-        "div.result-item article, article.TPost, div.items article"
-
+    override fun searchAnimeSelector() = "article.post"
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
@@ -113,17 +133,21 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override fun animeDetailsParse(document: Document): SAnime {
         return SAnime.create().apply {
-            title = document.selectFirst("h1.Title, h1.entry-title, .sheader h1")?.text() ?: ""
-            thumbnail_url = document.selectFirst(".Image img, .poster img, img.TPostMv")?.let {
-                it.attr("data-src").ifEmpty { it.attr("src") }
-            }
+            title = document.selectFirst(
+                "h1.entry-title, h1.Title, .sheader h1, .entry-header h1",
+            )?.text() ?: ""
+            thumbnail_url = document.selectFirst(
+                ".post-thumbnail img, .wp-post-image, img.attachment-post-thumbnail",
+            )?.let { fixImageUrl(it.attr("src").ifEmpty { it.attr("data-src") }) }
             description = document.selectFirst(
-                ".Description p, .sbox.fixidtab p, article.Description p",
+                ".entry-content p, .description p, .sinopsis p",
             )?.text()
-            genre = document.select(".Genre a, .sgeneros a").joinToString { it.text() }
-            status = when (document.selectFirst(".Status")?.text()?.lowercase()) {
-                "ongoing" -> SAnime.ONGOING
-                "completed" -> SAnime.COMPLETED
+            genre = document.select(
+                ".entry-meta a[href*=\"/category/\"], .tags a, .genres a",
+            ).joinToString { it.text() }
+            status = when {
+                document.selectFirst("a[href*=\"ongoing\"]") != null -> SAnime.ONGOING
+                document.selectFirst("a[href*=\"completed\"]") != null -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
         }
@@ -131,17 +155,18 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     // ======================== Episodes ========================
 
-    override fun episodeListSelector() =
-        "ul.episodios li, div.episodios li, #seasons .se-c .episodios li"
+    // Series pages list episodes as: li > article.post.episodes > a.lnk-blk
+    override fun episodeListSelector() = "li article.post, li > article"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         val episodes = document.select(episodeListSelector())
         if (episodes.isEmpty()) {
+            // Treat as a movie/single episode
             return listOf(
                 SEpisode.create().apply {
                     setUrlWithoutDomain(response.request.url.toString())
-                    name = "Movie"
+                    name = "Watch"
                     episode_number = 1F
                 },
             )
@@ -151,13 +176,22 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override fun episodeFromElement(element: Element): SEpisode {
         return SEpisode.create().apply {
-            val link = element.selectFirst("a")!!
+            val link = element.selectFirst("a.lnk-blk, a")!!
             setUrlWithoutDomain(link.attr("href"))
-            name = element.selectFirst(".numerando, .Num")?.text()?.let { "Ep $it" }
-                ?: link.text().ifEmpty { element.text() }
-            episode_number = name.filter { it.isDigit() || it == '.' }.toFloatOrNull() ?: 0F
+            // Title is like "Naruto Shippūden 1x1" — use as episode name
+            val rawTitle = element.selectFirst("h2.entry-title")?.text() ?: link.text()
+            name = rawTitle.ifEmpty { "Episode" }
+            // Extract episode number from "SxE" pattern or trailing digits
+            val sxe = Regex("""(\d+)x(\d+)""").find(rawTitle)
+            episode_number = if (sxe != null) {
+                sxe.groupValues[2].toFloatOrNull() ?: 0F
+            } else {
+                Regex("""\d+""").findAll(rawTitle).lastOrNull()?.value?.toFloatOrNull() ?: 0F
+            }
             date_upload = runCatching {
-                dateFormat.parse(element.selectFirst(".Date, .date")?.text() ?: "")?.time ?: 0L
+                val timeText = element.selectFirst(".time, .date, span.time")?.text() ?: ""
+                val year = Regex("""\d{4}""").find(timeText)?.value ?: ""
+                if (year.isNotEmpty()) dateFormat.parse(year)?.time ?: 0L else 0L
             }.getOrDefault(0L)
         }
     }
@@ -167,22 +201,22 @@ class ToonStream : ParsedAnimeHttpSource() {
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val videoList = mutableListOf<Video>()
+
+        // The episode page may have server tabs with data attributes
+        // or direct iframes
         val serverItems = document.select(
-            "#playeroptionsul li, .dooplay_player_option, .server-item",
+            "#playeroptionsul li, .dooplay_player_option, [data-post][data-nume]",
         )
-        if (serverItems.isEmpty()) {
-            document.select("iframe").forEach { iframe ->
-                val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
-                if (src.isNotBlank()) videoList.addAll(extractVideos(src, ""))
-            }
-        } else {
+
+        if (serverItems.isNotEmpty()) {
             serverItems.forEach { item ->
-                val label = item.text()
+                val label = item.selectFirst(".server, .name, span")?.text()
+                    ?: item.text().trim()
                 val dataId = item.attr("data-post")
                 val dataNume = item.attr("data-nume")
-                val dataType = item.attr("data-type")
+                val dataType = item.attr("data-type").ifEmpty { "1" }
                 if (dataId.isNotBlank() && dataNume.isNotBlank()) {
-                    try {
+                    runCatching {
                         val ajaxBody = okhttp3.FormBody.Builder()
                             .add("action", "doo_player_ajax")
                             .add("post", dataId)
@@ -197,14 +231,38 @@ class ToonStream : ParsedAnimeHttpSource() {
                                 .addHeader("X-Requested-With", "XMLHttpRequest")
                                 .build(),
                         ).execute()
-                        val embedUrl = Regex(""""embed_url":"([^"]+)"""")
-                            .find(ajaxResp.body.string())?.groupValues?.get(1)
+                        val body = ajaxResp.body.string()
+                        val embedUrl = Regex(""""embed_url"\s*:\s*"([^"]+)"""")
+                            .find(body)?.groupValues?.get(1)
                             ?.replace("\\/", "/") ?: ""
-                        if (embedUrl.isNotBlank()) videoList.addAll(extractVideos(embedUrl, label))
-                    } catch (_: Exception) {}
+                        if (embedUrl.isNotBlank()) {
+                            videoList.addAll(extractVideos(embedUrl, label))
+                        }
+                    }
                 }
             }
         }
+
+        // Fallback: direct iframes
+        if (videoList.isEmpty()) {
+            document.select("iframe[src], iframe[data-src]").forEach { iframe ->
+                val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }
+                if (src.isNotBlank() && "about:blank" !in src) {
+                    videoList.addAll(extractVideos(src, ""))
+                }
+            }
+        }
+
+        // Last fallback: look for video source directly
+        if (videoList.isEmpty()) {
+            document.select("video source[src]").forEach { source ->
+                val src = source.attr("src")
+                if (src.isNotBlank()) {
+                    videoList.add(Video(src, "Direct", src))
+                }
+            }
+        }
+
         return videoList.sortedWith(
             compareByDescending<Video> {
                 it.quality.contains("hindi", ignoreCase = true) ||
@@ -242,46 +300,36 @@ class ToonStream : ParsedAnimeHttpSource() {
     class GenreFilter : AnimeFilter.Select<String>(
         "Genre",
         arrayOf(
-            "All", "Action", "Adventure", "Comedy", "Drama", "Fantasy",
-            "Horror", "Magic", "Martial Arts", "Mecha", "Music", "Mystery",
-            "Psychological", "Romance", "School", "Sci-Fi", "Slice of Life",
-            "Sports", "Super Power", "Supernatural", "Thriller",
+            "All", "Action", "Adventure", "Animation", "Comedy", "Crime",
+            "Drama", "Fantasy", "Horror", "Mystery", "Romance", "Sci-Fi",
+            "Thriller",
         ),
     ) {
         val slugs = arrayOf(
             Pair("All", ""),
             Pair("Action", "action"),
             Pair("Adventure", "adventure"),
+            Pair("Animation", "animation"),
             Pair("Comedy", "comedy"),
+            Pair("Crime", "crime"),
             Pair("Drama", "drama"),
             Pair("Fantasy", "fantasy"),
             Pair("Horror", "horror"),
-            Pair("Magic", "magic"),
-            Pair("Martial Arts", "martial-arts"),
-            Pair("Mecha", "mecha"),
-            Pair("Music", "music"),
             Pair("Mystery", "mystery"),
-            Pair("Psychological", "psychological"),
             Pair("Romance", "romance"),
-            Pair("School", "school"),
             Pair("Sci-Fi", "sci-fi"),
-            Pair("Slice of Life", "slice-of-life"),
-            Pair("Sports", "sports"),
-            Pair("Super Power", "super-power"),
-            Pair("Supernatural", "supernatural"),
             Pair("Thriller", "thriller"),
         )
     }
 
     class TypeFilter : AnimeFilter.Select<String>(
         "Type",
-        arrayOf("All", "Anime", "Series", "Movies"),
+        arrayOf("All", "Anime Series", "Cartoon"),
     ) {
         val slugs = arrayOf(
             Pair("All", ""),
-            Pair("Anime", "anime"),
-            Pair("Series", "series"),
-            Pair("Movies", "movies"),
+            Pair("Anime Series", "anime-series"),
+            Pair("Cartoon", "cartoon"),
         )
     }
 }
