@@ -21,7 +21,7 @@ import java.util.Locale
 class ToonStream : ParsedAnimeHttpSource() {
 
     override val name = "ToonStream"
-    override val baseUrl = "https://toonstream.dad"
+    override val baseUrl = "https://toonstream.vip"
     override val lang = "hi"
     override val supportsLatest = true
 
@@ -37,38 +37,30 @@ class ToonStream : ParsedAnimeHttpSource() {
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
 
+    // ======================== Popular ========================
+
     override fun popularAnimeRequest(page: Int): Request =
-        GET(if (page == 1) "$baseUrl/category/anime/" else "$baseUrl/category/anime/page/$page/", headers)
+        GET(if (page == 1) "$baseUrl/home/" else "$baseUrl/home/page/$page/", headers)
 
     override fun popularAnimeSelector() =
-        "ul.post-lst li, article.post.movies"
+        "article.TPost, div.items article, div.post-cards article"
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         return SAnime.create().apply {
-            val link = element.selectFirst("a.lnk-blk, a[href*='/series/'], a[href*='/movies/']")!!
+            val link = element.selectFirst("a.lnk, a")!!
             setUrlWithoutDomain(link.attr("href"))
-            
-            // Try to get title from img alt, removing "Image " prefix if present
-            val imgElement = element.selectFirst("img")
-            title = imgElement?.attr("alt")?.removePrefix("Image ")?.trim()
-                ?: link.attr("title").ifEmpty { 
-                    // Extract from URL as fallback
-                    link.attr("href").substringAfterLast("/").substringBeforeLast("/")
-                        .replace("-", " ").replaceFirstChar { it.uppercase() }
-                }
-            
-            thumbnail_url = imgElement?.let {
-                it.attr("src").ifEmpty { 
-                    it.attr("data-src").ifEmpty { 
-                        it.attr("data-lazy-src") 
-                    }
-                }
+            title = element.selectFirst(".Title, h2, h3")?.text()
+                ?: link.attr("title").ifEmpty { element.text() }
+            thumbnail_url = element.selectFirst(".Image img, img")?.let {
+                it.attr("data-src").ifEmpty { it.attr("src") }
             }
         }
     }
 
     override fun popularAnimeNextPageSelector() =
         "div.nav-links a.next, .pagination a.next, a.nextpostslink"
+
+    // ======================== Latest ========================
 
     override fun latestUpdatesRequest(page: Int): Request =
         GET(
@@ -79,6 +71,8 @@ class ToonStream : ParsedAnimeHttpSource() {
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
     override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+
+    // ======================== Search ========================
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = if (query.isNotEmpty()) {
@@ -110,10 +104,12 @@ class ToonStream : ParsedAnimeHttpSource() {
     }
 
     override fun searchAnimeSelector() =
-        "div.result-item article, ul.post-lst li, article.post.movies"
+        "div.result-item article, article.TPost, div.items article"
 
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
     override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
+
+    // ======================== Details ========================
 
     override fun animeDetailsParse(document: Document): SAnime {
         return SAnime.create().apply {
@@ -133,8 +129,10 @@ class ToonStream : ParsedAnimeHttpSource() {
         }
     }
 
+    // ======================== Episodes ========================
+
     override fun episodeListSelector() =
-        "ul#episode_by_temp li, ul.post-lst li article.episodes"
+        "ul.episodios li, div.episodios li, #seasons .se-c .episodios li"
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -153,29 +151,18 @@ class ToonStream : ParsedAnimeHttpSource() {
 
     override fun episodeFromElement(element: Element): SEpisode {
         return SEpisode.create().apply {
-            val link = element.selectFirst("a.lnk-blk, a")!!
-            val url = link.attr("href")
-            setUrlWithoutDomain(url)
-            
-            // Extract episode info from URL (e.g., "one-punch-man-1x1" -> "1x1")
-            val episodeInfo = url.substringAfterLast("/").substringAfterLast("-")
-            name = if (episodeInfo.contains("x")) {
-                "Episode $episodeInfo"
-            } else {
-                element.selectFirst(".numerando, .Num")?.text()?.let { "Ep $it" }
-                    ?: link.text().ifEmpty { "Episode" }
-            }
-            
-            // Extract episode number from format like "1x2" or "2x10"
-            episode_number = episodeInfo.substringAfter("x").toFloatOrNull() 
-                ?: name.filter { it.isDigit() || it == '.' }.toFloatOrNull() 
-                ?: 0F
-                
+            val link = element.selectFirst("a")!!
+            setUrlWithoutDomain(link.attr("href"))
+            name = element.selectFirst(".numerando, .Num")?.text()?.let { "Ep $it" }
+                ?: link.text().ifEmpty { element.text() }
+            episode_number = name.filter { it.isDigit() || it == '.' }.toFloatOrNull() ?: 0F
             date_upload = runCatching {
                 dateFormat.parse(element.selectFirst(".Date, .date")?.text() ?: "")?.time ?: 0L
             }.getOrDefault(0L)
         }
     }
+
+    // ======================== Videos ========================
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
@@ -244,6 +231,8 @@ class ToonStream : ParsedAnimeHttpSource() {
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
     override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
+    // ======================== Filters ========================
+
     override fun getFilterList() = AnimeFilterList(
         AnimeFilter.Header("Leave search empty to use filters"),
         GenreFilter(),
@@ -295,4 +284,4 @@ class ToonStream : ParsedAnimeHttpSource() {
             Pair("Movies", "movies"),
         )
     }
-                                             }
+}
